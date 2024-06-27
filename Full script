@@ -1,0 +1,258 @@
+/* DATA PREPARATION AND CLEANING */
+/* Normalize text data and address missing values */
+data House_char;
+    set House_char;
+    /* Normalize Central_Air values */
+    if Central_Air = 'y' then Central_Air = 'Y';
+    else if Central_Air = 'n' then Central_Air = 'N';
+    /* Convert 'NA' and missing Garage_Area values to SAS missing */
+    if Garage_Area = 'NA' or missing(Garage_Area) then Garage_Area = .;
+    /* Convert 'NA' and empty cells in Garage_Type to blank */
+    if Garage_Type = 'NA' or missing(Garage_Type) then Garage_Type = ' ';
+run;
+
+/* COMBINING THE DATA */
+/* Sort Both Datasets */
+proc sort data=House_char; by ID_House; run;
+proc sort data=House_sale; by ID; run;
+
+/* Merging Datasets */
+data House_combined;
+    merge House_char(in=a) House_sale(in=b rename=(ID=ID_House));
+    by ID_House;
+    if a & b; /* Keeping only those records that match in both datasets */
+run;
+
+/* DATA TRANSFORMATION */
+/* Calculating House Age at Sale and Categorizing */
+data House_combined;
+    /* Set the lengths at the start of the data step to avoid truncation */
+    length Age_Category $15 Price_Range $15 Garage_Size_Category $25;
+
+    set House_combined;
+    
+    House_Age_At_Sale = Year_Sold - Year_Construction;
+    /* Categorize house age at sale */
+    if House_Age_At_Sale < 10 then Age_Category = '0-9 years';
+    else if House_Age_At_Sale < 20 then Age_Category = '10-19 years';
+    else if House_Age_At_Sale < 30 then Age_Category = '20-29 years';
+    else if House_Age_At_Sale < 40 then Age_Category = '30-39 years';
+    else if House_Age_At_Sale < 50 then Age_Category = '40-49 years';
+    else Age_Category = '50+ years';
+    
+    /* Categorize Sale Price */
+    if Price_of_Sale < 100000 then Price_Range = '< 100K';
+    else if Price_of_Sale < 200000 then Price_Range = '100K-199K';
+    else if Price_of_Sale < 300000 then Price_Range = '200K-299K';
+    else if Price_of_Sale < 400000 then Price_Range = '300K-399K';
+    else if Price_of_Sale < 500000 then Price_Range = '400K-499K';
+    else Price_Range = '500K+';
+
+    /* Categorize Garage Size */
+    if Garage_Area = . then Garage_Size_Category = 'No Garage';
+    else if Garage_Area < 20 then Garage_Size_Category = 'Very Small (<20 sqm)';
+    else if Garage_Area < 40 then Garage_Size_Category = 'Small (20-39 sqm)';
+    else if Garage_Area < 60 then Garage_Size_Category = 'Medium (40-59 sqm)';
+    else if Garage_Area < 80 then Garage_Size_Category = 'Large (60-79 sqm)';
+    else Garage_Size_Category = 'Very Large (80+ sqm)';
+
+    /* Garage Presence Indicator */
+    if Garage_Area > 0 then Garage_Present = 'Y';
+    else Garage_Present = 'N';
+
+    /* Garage to Living Area Ratio */
+    if Living_Area > 0 then Garage_to_Living_Ratio = Garage_Area / Living_Area;
+    else Garage_to_Living_Ratio = .; /* Handles division by zero if Living_Area is missing or zero */
+run;
+
+
+/* EXPLORATORY DATA ANALYSIS (EDA) */
+/* Summary Statistics */
+proc means data=House_combined N mean std min max median;
+    var Price_of_Sale Living_Area Garage_Area;
+    output out=summary_stats;
+run;
+
+/* Frequency Distributions */
+proc freq data=House_combined;
+    tables Central_Air Garage_Type Age_Category Price_Range / missing;
+run;
+
+proc sgplot data=House_combined;
+    title 'Scatter Plot of Living Area vs Sale Price';
+    scatter x=Living_Area y=Price_of_Sale / markerattrs=(symbol=circlefilled);
+    xaxis label='Living Area Size';
+    yaxis label='Sale Price';
+run;
+
+proc sgplot data=House_combined;
+    histogram Price_of_sale / binwidth=50000 fillattrs=(color=blue);
+    xaxis label='Sale Price';
+    yaxis label='Frequency';
+    title 'Frequency Distribution of Sale Prices';
+run;
+
+
+/* Visualizations for Exploratory Data Analysis (EDA) */
+/* Box Plot for Sale Prices by Age Category */
+proc sgplot data=House_combined;
+    vbox Price_of_Sale / category=Age_Category;
+    title "Distribution of Sale Prices by Age Category";
+run;
+
+/* Box Plot for Sale Prices by Price Range */
+proc sgplot data=House_combined;
+    vbox Price_of_Sale / category=Price_Range;
+    title "Distribution of Sale Prices by Price Range";
+run;
+
+/* Box Plot for Sale Prices by Central Air Conditioning */
+proc sgplot data=House_combined;
+    vbox Price_of_Sale / category=Central_Air;
+    title "Distribution of Sale Prices by Central Air Conditioning";
+run;
+
+/* Box Plot for Sale Prices by Garage Type */
+proc sgplot data=House_combined;
+    vbox Price_of_Sale / category=Garage_Type;
+    title "Distribution of Sale Prices by Garage Type";
+run;
+
+/* Scatter Plot for Garage Area vs. Living Area */
+proc sgplot data=House_combined;
+    scatter x=Living_Area y=Garage_Area;
+    title "Relationship between Living Area and Garage Area";
+run;
+
+/* Scatter Plot for House Age at Sale vs. Price of Sale */
+proc sgplot data=House_combined;
+    scatter x=House_Age_At_Sale y=Price_of_Sale;
+    title "Relationship between House Age at Sale and Price of Sale";
+    xaxis label="House Age at Sale (Years)";
+    yaxis label="Price of Sale";
+run;
+
+/* Histogram of House Age at Sale with Data Labels */
+proc sgplot data=House_combined;
+    histogram House_Age_At_Sale / datalabel; /* Shows the count of each bin directly on the histogram */
+    keylegend / location=inside position=topright; /* Not typically necessary for single variable histograms but included for completeness */
+    title "Distribution of House Ages at Sale";
+run;
+
+/* Histogram of Garage Areas with Data Labels */
+proc sgplot data=House_combined;
+    histogram Garage_Area / datalabel; /* Shows the count of each bin directly on the histogram */
+    keylegend / location=inside position=topright; /* Adjust if needed or remove if not required */
+    title "Distribution of Garage Areas";
+run;
+
+/* Checking for and Handling Duplicates and Outliers */
+proc sort data=House_combined nodupkey out=House_combined_nodup;
+    by _all_;
+run;
+
+/* Identify and address outliers */
+proc univariate data=House_combined_nodup;
+    var Price_of_Sale;
+    histogram / normal(mu=est sigma=est);
+    inset n mean std / pos=ne;
+run;
+
+/* Standardize Values for further outlier analysis */
+proc standard data=House_combined_nodup mean=0 std=1 out=House_standardized;
+    var Price_of_Sale Living_Area Garage_Area;
+run;
+
+proc print data=House_standardized;
+    where abs(Price_of_Sale) > 3 or abs(Living_Area) > 3 or abs(Garage_Area) > 3;
+    title "Observations with Extreme Standardized Values";
+run;
+
+/*STATISTICAL ANALYSIS*/
+/*Linear Regression*/
+proc glm data=House_combined;
+    class Central_Air (ref='N') Garage_Present (ref='N') Age_Category Garage_Type; /* Declaring categorical variables */
+    model Price_of_Sale = Living_Area Garage_Area Central_Air Garage_Present Age_Category Garage_Type
+                         Central_Air*Garage_Area;
+    output out=glmResults p=Predicted_Value r=Residuals; /* Save predicted values and residuals */
+    title "Linear Regression Model for Predicting House Prices with Interaction";
+run;
+
+/* Plotting residuals for the linear regression model */
+proc sgplot data=glmResults;
+    scatter x=Predicted_Value y=Residuals;
+    title "Residual Plot for Linear Regression";
+    xaxis label="Predicted House Prices";
+    yaxis label="Residuals";
+run;
+/* Predicted vs Actual Plot */
+proc sgplot data=glmResults;
+    scatter x=Price_of_Sale y=Predicted_Value;
+    refline 45 / axis=x lineattrs=(pattern=solid color=red); 
+    xaxis label="Actual House Prices";
+    yaxis label="Predicted House Prices";
+    title "Predicted vs. Actual Values Plot";
+run;
+
+/*Logistic Regression*/
+/* Create a binary outcome variable based on the price threshold */
+data House_combined;
+    set House_combined;
+    High_Value = (Price_of_Sale > 100000); /* 1 for high value, 0 for low value */
+run;
+
+/* Logistic regression to predict high-value homes */
+proc logistic data=House_combined;
+    class Central_Air Garage_Present Age_Category Garage_Type / param=ref; /* Handling categorical variables */
+    model High_Value(event='1') = Living_Area Garage_Area Central_Air
+                                 Garage_Present Age_Category Garage_Type / selection=stepwise slstay=0.05 slentry=0.05;
+    output out=logResults p=probabilities; /* Output dataset with predicted probabilities */
+    title "Logistic Regression Model for High-Value Home Prediction";
+run;
+
+/* Visualize the predicted probabilities */
+proc sgplot data=logResults;
+    scatter x=Price_of_Sale y=probabilities / group=High_Value;
+    xaxis label="Actual House Prices";
+    yaxis label="Predicted Probability of High Value";
+    title "Predicted Probability vs. Actual House Prices";
+run;
+
+/* Chi-square Test for Independence between Central_Air and High_Value */
+proc freq data=House_combined;
+    tables Central_Air*High_Value / chisq;
+    title "Chi-square Test of Independence between Central Air and High Value Status";
+run;
+
+/* Chi-square Test for Independence between Garage_type and High_Value */
+proc freq data=House_combined;
+    tables Garage_Type*High_Value / chisq;
+    title "Chi-square Test of Independence between Garage Type and High Value Status";
+run;
+
+/* Bar Chart for Visualizing Relationship between Central_Air and High_Value */
+proc sgplot data=House_combined;
+    vbar Central_Air / response=High_Value stat=freq group=High_Value;
+    title "Distribution of High Value Homes by Central Air Status";
+run;
+
+/* Bar Chart for Visualizing Relationship between Garage_Type and High_Value */
+proc sgplot data=House_combined;
+    vbar Garage_Type / response=High_Value stat=freq group=High_Value;
+    title "Distribution of High Value Homes by Garage Type";
+run;
+
+/* T-Test for comparing Living Area between High Value and Not High Value Homes */
+proc ttest data=House_combined;
+    class High_Value;
+    var Living_Area;
+    title "T-Test of Living Area by High Value Status";
+run;
+
+/*F-test (Analysis of Variance) to compare Living Area across different Garage Types */
+proc glm data=House_combined;
+    class Garage_Type;
+    model Living_Area = Garage_Type;
+    means Garage_Type / tukey; /* Post hoc test if ANOVA is significant */
+    title "ANOVA of Living Area by Garage Type";
+run;
